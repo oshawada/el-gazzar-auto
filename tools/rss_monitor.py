@@ -96,6 +96,9 @@ def send_batch(pdf_paths: list[Path], recipient: str):
     run_tool("send_email.py", "--to", recipient, "--batch", paths_arg)
 
 
+MAX_ARTICLES_PER_CYCLE = int(os.environ.get("MAX_ARTICLES_PER_CYCLE", "2"))
+
+
 def poll_feeds():
     feeds_raw = os.environ.get("RSS_FEEDS", "")
     recipient = os.environ.get("RECIPIENT_EMAIL", "")
@@ -113,6 +116,10 @@ def poll_feeds():
     processed_urls: list[str] = []
 
     for feed_url in feed_urls:
+        if len(collected_pdfs) >= MAX_ARTICLES_PER_CYCLE:
+            log.info(f"Reached cycle limit ({MAX_ARTICLES_PER_CYCLE} articles) — stopping.")
+            break
+
         log.info(f"Checking feed: {feed_url}")
         try:
             feed = feedparser.parse(feed_url)
@@ -121,9 +128,16 @@ def poll_feeds():
             continue
 
         for entry in feed.entries:
+            if len(collected_pdfs) >= MAX_ARTICLES_PER_CYCLE:
+                break
+
             article_url = entry.get("link", "")
             if not article_url or article_url in seen:
                 continue
+
+            # Mark as seen immediately so failed articles don't retry forever
+            seen.add(article_url)
+            save_seen(seen)
 
             log.info(f"New article found: {entry.get('title', article_url)[:80]}")
             pdf = process_article(article_url)
@@ -132,16 +146,11 @@ def poll_feeds():
                 collected_pdfs.append(pdf)
                 processed_urls.append(article_url)
             else:
-                log.warning(f"Skipping URL after failure: {article_url}")
+                log.warning(f"Pipeline failed for: {article_url}")
 
     if not collected_pdfs:
         log.info("No new articles found this cycle.")
         return
-
-    # Mark all successful articles as seen before sending
-    for url in processed_urls:
-        seen.add(url)
-    save_seen(seen)
 
     log.info(f"Sending batch email with {len(collected_pdfs)} PDF(s)...")
     send_batch(collected_pdfs, recipient)

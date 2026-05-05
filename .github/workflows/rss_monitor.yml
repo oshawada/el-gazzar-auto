@@ -11,7 +11,7 @@ permissions:
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 12        # kill if a run hangs before the next one starts
+    timeout-minutes: 25        # 2 articles × ~10 min each = 20 min max
 
     steps:
       # ── 1. Checkout ────────────────────────────────────────────────────────
