@@ -1,0 +1,14 @@
+groq
+feedparser
+apscheduler
+Pillow
+requests
+beautifulsoup4
+arabic-reshaper
+python-bidi
+reportlab
+python-dotenv
+playwright
+google-auth-oauthlib
+google-auth-httplib2
+google-api-python-client

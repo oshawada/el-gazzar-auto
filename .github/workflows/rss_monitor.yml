@@ -1,0 +1,99 @@
+name: RSS Article Monitor
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'   # every 15 minutes
+  workflow_dispatch:           # manual trigger from GitHub UI
+
+permissions:
+  contents: write              # needed to save rss_seen.json via cache
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12        # kill if a run hangs before the next one starts
+
+    steps:
+      # ── 1. Checkout ────────────────────────────────────────────────────────
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # ── 2. Python ──────────────────────────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: pip-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Playwright browser
+        run: playwright install chromium --with-deps
+
+      # ── 3. Restore seen-articles list ──────────────────────────────────────
+      - name: Restore seen articles cache
+        uses: actions/cache@v4
+        with:
+          path: .tmp/rss_seen.json
+          key: rss-seen-${{ github.run_number }}
+          restore-keys: rss-seen-
+
+      - name: Ensure .tmp dir exists
+        run: mkdir -p .tmp
+
+      # ── 4. Arabic font ─────────────────────────────────────────────────────
+      - name: Download Amiri Arabic font (free fallback)
+        run: |
+          mkdir -p assets/fonts
+          if [ ! -f assets/fonts/tahoma.ttf ]; then
+            echo "[font] Downloading Amiri (free Arabic font)..."
+            wget -q "https://github.com/alif-type/amiri/releases/download/1.000/Amiri-1.000.zip" -O /tmp/amiri.zip
+            unzip -q /tmp/amiri.zip "Amiri-1.000/Amiri-Regular.ttf" "Amiri-1.000/Amiri-Bold.ttf" -d /tmp/
+            mv "/tmp/Amiri-1.000/Amiri-Regular.ttf" assets/fonts/tahoma.ttf
+            mv "/tmp/Amiri-1.000/Amiri-Bold.ttf"    assets/fonts/tahomabd.ttf
+            echo "[font] Amiri downloaded."
+          else
+            echo "[font] Font already present in assets/fonts/"
+          fi
+
+      # ── 5. Write secrets to disk ───────────────────────────────────────────
+      - name: Write Gmail token
+        env:
+          GMAIL_TOKEN: ${{ secrets.GMAIL_TOKEN_JSON }}
+        run: printf '%s' "$GMAIL_TOKEN" > token.json
+
+      - name: Write Gmail client secret
+        env:
+          GMAIL_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET_JSON }}
+        run: printf '%s' "$GMAIL_SECRET" > client_secret.json
+
+      # ── 6. Build .env ──────────────────────────────────────────────────────
+      - name: Create .env
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          RSS_FEEDS: ${{ secrets.RSS_FEEDS }}
+        run: |
+          {
+            echo "GROQ_API_KEY=$GROQ_API_KEY"
+            echo "GROQ_MODEL=llama-3.3-70b-versatile"
+            echo "GMAIL_USER=shawada6@gmail.com"
+            echo "GOOGLE_CLIENT_SECRET_FILE=client_secret.json"
+            echo "RECIPIENT_EMAIL=$RECIPIENT_EMAIL"
+            echo "RSS_FEEDS=$RSS_FEEDS"
+            echo "LOGO_PATH=assets/logo.png"
+            echo "BRAND_COLOR_PRIMARY=#1A2F5A"
+            echo "BRAND_COLOR_ACCENT=#F4A300"
+            echo "RSS_POLL_INTERVAL=15"
+          } > .env
+
+      # ── 7. Run monitor (once) ──────────────────────────────────────────────
+      - name: Run RSS monitor
+        run: python tools/rss_monitor.py --once

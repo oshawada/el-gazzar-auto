@@ -1,0 +1,8 @@
+.env
+.tmp/
+__pycache__/
+*.pyc
+*.egg-info/
+token.json
+client_secret*.json
+assets/fonts/
