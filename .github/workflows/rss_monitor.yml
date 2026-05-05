@@ -49,16 +49,18 @@ jobs:
         run: mkdir -p .tmp
 
       # ── 4. Arabic font ─────────────────────────────────────────────────────
-      - name: Download Amiri Arabic font (free fallback)
+      - name: Install Arabic fonts (Noto)
         run: |
           mkdir -p assets/fonts
           if [ ! -f assets/fonts/tahoma.ttf ]; then
-            echo "[font] Downloading Amiri (free Arabic font)..."
-            wget -q "https://github.com/alif-type/amiri/releases/download/1.000/Amiri-1.000.zip" -O /tmp/amiri.zip
-            unzip -q /tmp/amiri.zip "Amiri-1.000/Amiri-Regular.ttf" "Amiri-1.000/Amiri-Bold.ttf" -d /tmp/
-            mv "/tmp/Amiri-1.000/Amiri-Regular.ttf" assets/fonts/tahoma.ttf
-            mv "/tmp/Amiri-1.000/Amiri-Bold.ttf"    assets/fonts/tahomabd.ttf
-            echo "[font] Amiri downloaded."
+            echo "[font] Installing Noto Arabic fonts via apt..."
+            sudo apt-get install -y --no-install-recommends fonts-noto-core
+            FONT=$(fc-match --format="%{file}" ":lang=ar:weight=80" 2>/dev/null)
+            FONT_BOLD=$(fc-match --format="%{file}" ":lang=ar:weight=200" 2>/dev/null)
+            cp "$FONT" assets/fonts/tahoma.ttf
+            [ -f "$FONT_BOLD" ] && cp "$FONT_BOLD" assets/fonts/tahomabd.ttf || cp "$FONT" assets/fonts/tahomabd.ttf
+            echo "[font] Regular: $FONT"
+            echo "[font] Bold: $FONT_BOLD"
           else
             echo "[font] Font already present in assets/fonts/"
           fi
