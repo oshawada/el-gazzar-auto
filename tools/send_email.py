@@ -40,7 +40,9 @@ CLIENT_SECRET_FILE = ROOT_DIR / os.environ.get(
 def get_gmail_service():
     creds = None
     if TOKEN_FILE.exists():
-        creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
+        # utf-8-sig strips BOM if present (common when secret was saved via PowerShell)
+        token_data = json.loads(TOKEN_FILE.read_text(encoding="utf-8-sig"))
+        creds = Credentials.from_authorized_user_info(token_data, SCOPES)
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
