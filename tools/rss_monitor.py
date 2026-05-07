@@ -96,7 +96,7 @@ def send_batch(pdf_paths: list[Path], recipient: str):
     run_tool("send_email.py", "--to", recipient, "--batch", paths_arg)
 
 
-MAX_ARTICLES_PER_CYCLE = int(os.environ.get("MAX_ARTICLES_PER_CYCLE", "2"))
+MAX_ARTICLES_PER_CYCLE = int(os.environ.get("MAX_ARTICLES_PER_CYCLE", "3"))
 
 
 def poll_feeds():
