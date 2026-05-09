@@ -11,7 +11,7 @@ permissions:
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 25        # 2 articles × ~10 min each = 20 min max
+    timeout-minutes: 20        # 3 articles × ~5 min each (no PDF)
 
     steps:
       # ── 1. Checkout ────────────────────────────────────────────────────────
@@ -91,8 +91,8 @@ jobs:
             echo "RECIPIENT_EMAIL=$RECIPIENT_EMAIL"
             echo "RSS_FEEDS=$RSS_FEEDS"
             echo "LOGO_PATH=assets/logo.png"
-            echo "BRAND_COLOR_PRIMARY=#1A2F5A"
-            echo "BRAND_COLOR_ACCENT=#F4A300"
+            echo "BRAND_COLOR_PRIMARY=#E60000"
+            echo "BRAND_COLOR_ACCENT=#FFFFFF"
             echo "RSS_POLL_INTERVAL=60"
           } > .env
 

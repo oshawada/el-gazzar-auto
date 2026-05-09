@@ -55,45 +55,26 @@ def run_tool(script: str, *args) -> bool:
     return True
 
 
-def find_latest_pdf() -> Path | None:
-    """Return the most recently modified PDF in .tmp/, or None."""
-    pdfs = sorted(TMP_DIR.glob("*.pdf"), key=lambda p: p.stat().st_mtime, reverse=True)
-    return pdfs[0] if pdfs else None
-
-
-def process_article(url: str) -> Path | None:
-    """Run fetch→rewrite→image→pdf for one URL. Returns the generated PDF Path or None."""
+def process_article(url: str) -> bool:
+    """Run fetch→rewrite→image for one URL. Returns True on success."""
     log.info(f"=== Processing: {url} ===")
 
-    pdf_before = find_latest_pdf()
-    mtime_before = pdf_before.stat().st_mtime if pdf_before else 0
-
     if not run_tool("fetch_article.py", "--url", url):
-        return None
+        return False
 
     if not run_tool("rewrite_arabic.py"):
-        return None
+        return False
 
     if not run_tool("generate_image.py"):
         log.warning("Image generation failed — continuing without image")
 
-    if not run_tool("generate_pdf.py"):
-        return None
-
-    # Find the PDF that appeared / was updated after we started
-    pdf_after = find_latest_pdf()
-    if pdf_after and pdf_after.stat().st_mtime > mtime_before:
-        log.info(f"=== Done: {url} → {pdf_after.name} ===")
-        return pdf_after
-
-    log.warning(f"Could not locate generated PDF for {url}")
-    return None
+    log.info(f"=== Done: {url} ===")
+    return True
 
 
-def send_batch(pdf_paths: list[Path], recipient: str):
-    """Send one email with all PDFs attached, using send_email.py --batch."""
-    paths_arg = ",".join(str(p) for p in pdf_paths)
-    run_tool("send_email.py", "--to", recipient, "--batch", paths_arg)
+def send_article(recipient: str):
+    """Send HTML email for the current article_arabic.json."""
+    run_tool("send_email.py", "--to", recipient)
 
 
 MAX_ARTICLES_PER_CYCLE = int(os.environ.get("MAX_ARTICLES_PER_CYCLE", "3"))
@@ -112,11 +93,10 @@ def poll_feeds():
 
     feed_urls = [f.strip() for f in feeds_raw.split(",") if f.strip()]
     seen = load_seen()
-    collected_pdfs: list[Path] = []
-    processed_urls: list[str] = []
+    sent_count = 0
 
     for feed_url in feed_urls:
-        if len(collected_pdfs) >= MAX_ARTICLES_PER_CYCLE:
+        if sent_count >= MAX_ARTICLES_PER_CYCLE:
             log.info(f"Reached cycle limit ({MAX_ARTICLES_PER_CYCLE} articles) — stopping.")
             break
 
@@ -128,33 +108,32 @@ def poll_feeds():
             continue
 
         for entry in feed.entries:
-            if len(collected_pdfs) >= MAX_ARTICLES_PER_CYCLE:
+            if sent_count >= MAX_ARTICLES_PER_CYCLE:
                 break
 
             article_url = entry.get("link", "")
             if not article_url or article_url in seen:
                 continue
 
-            # Mark as seen immediately so failed articles don't retry forever
             seen.add(article_url)
             save_seen(seen)
 
             log.info(f"New article found: {entry.get('title', article_url)[:80]}")
-            pdf = process_article(article_url)
+            ok = process_article(article_url)
 
-            if pdf:
-                collected_pdfs.append(pdf)
-                processed_urls.append(article_url)
+            if ok:
+                # Send a separate email for each article, to every recipient
+                for r in [r.strip() for r in recipient.split(",") if r.strip()]:
+                    send_article(r)
+                sent_count += 1
+                log.info(f"Article {sent_count} sent to all recipients.")
             else:
                 log.warning(f"Pipeline failed for: {article_url}")
 
-    if not collected_pdfs:
+    if sent_count == 0:
         log.info("No new articles found this cycle.")
-        return
-
-    log.info(f"Sending batch email with {len(collected_pdfs)} PDF(s)...")
-    send_batch(collected_pdfs, recipient)
-    log.info(f"Cycle complete — {len(collected_pdfs)} article(s) processed and sent.")
+    else:
+        log.info(f"Cycle complete — {sent_count} article(s) processed and sent.")
 
 
 def main():
