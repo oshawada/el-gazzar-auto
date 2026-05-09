@@ -12,7 +12,6 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
 
-import anthropic
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -220,19 +219,26 @@ def rewrite(max_retries: int = 2) -> dict:
     print(f"[rewrite] Detected topic: {topic}")
     print(f"[rewrite] SEO keywords: {keywords[:5]}...")
 
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-    model = os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
+    from google import genai
+    from google.genai import types as gtypes
+
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY", "")
+    client = genai.Client(api_key=api_key)
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
     system, user = build_prompt(article, keywords)
 
     for attempt in range(1, max_retries + 1):
-        print(f"[rewrite] Calling Claude API (attempt {attempt})...")
-        response = client.messages.create(
+        print(f"[rewrite] Calling Gemini API (attempt {attempt})...")
+        response = client.models.generate_content(
             model=model,
-            max_tokens=4096,
-            system=system,
-            messages=[{"role": "user", "content": user}]
+            contents=user,
+            config=gtypes.GenerateContentConfig(
+                system_instruction=system,
+                max_output_tokens=4096,
+                temperature=0.7,
+            ),
         )
-        raw = response.content[0].text.strip()
+        raw = response.text.strip()
 
         # Strip markdown code fences if present
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
