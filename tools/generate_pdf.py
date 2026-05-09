@@ -172,7 +172,7 @@ def generate(output_path: Path = None) -> Path:
     if not INPUT_FILE.exists():
         raise FileNotFoundError(f"Input file not found: {INPUT_FILE}")
 
-    article = json.loads(INPUT_FILE.read_text(encoding="utf-8"))
+    article = json.loads(INPUT_FILE.read_text(encoding="utf-8-sig"))
     TMP_DIR.mkdir(exist_ok=True)
 
     if output_path is None:

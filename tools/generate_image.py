@@ -23,7 +23,7 @@ TMP_DIR = ROOT_DIR / ".tmp"
 INPUT_FILE = TMP_DIR / "article_arabic.json"
 OUTPUT_FILE = TMP_DIR / "article_image.jpg"
 
-IMG_W, IMG_H = 1200, 630
+IMG_W, IMG_H = 1280, 720   # 16:9 HD — matches almuraba.net reference images
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -71,87 +71,90 @@ def _find_font_pil(size: int, bold: bool = True):
 
 def _composite_overlay(img_path: Path, primary_hex: str, accent_hex: str) -> None:
     """
-    Apply almuraba.net-style branded frame — NO article text on image:
-      ┌──── red border (18px all sides) ────┐
-      │  ┌──────────────────────────────┐   │
-      │  │      clean car photo         │   │
-      │  └──────────────────────────────┘   │
-      │  ┌── red bottom bar (~68px) ────┐   │
-      │  │ tagline (left) | logo (right)│   │
-      │  └──────────────────────────────┘   │
-      └──────────────────────────────────────┘
+    almuraba.net-style frame — NO article text:
+      ┌──── red border (20px top/sides, 0 bottom) ───────────────────────┐
+      │  ┌──────────────────────────────────────────────────────────┐    │
+      │  │  car photo              [logo badge — top right corner]  │    │
+      │  └──────────────────────────────────────────────────────────┘    │
+      │  ┌── red bottom bar (72px) ───────────────────────────────── ┐   │
+      │  │           tagline text centered (white)                    │   │
+      │  └────────────────────────────────────────────────────────────┘   │
+      └───────────────────────────────────────────────────────────────────┘
+    Logo: placed as badge inside photo — top-right corner, white rounded bg
     """
     import arabic_reshaper
     from bidi.algorithm import get_display
     from PIL import Image, ImageDraw
 
     pr, pg, pb = _hex_to_rgb(primary_hex)
-    RED = (pr, pg, pb, 255)
+    RED  = (pr, pg, pb, 255)
 
-    border   = 18                      # red frame thickness (all sides)
-    bot_bar  = 68                      # bottom bar height (inside frame)
+    border  = 20    # red frame on top + left + right
+    bot_bar = 72    # red bottom bar height
 
-    # Photo area dimensions
     photo_w = IMG_W - border * 2
-    photo_h = IMG_H - border * 2 - bot_bar
+    photo_h = IMG_H - border - bot_bar   # top border only (bottom bar replaces bottom border)
 
-    # Load + cover-crop car photo to photo_w × photo_h
+    # ── Load + cover-crop car photo ───────────────────────────────────────────
     car = Image.open(img_path).convert("RGBA")
     cw, ch = car.size
-    scale  = max(photo_w / cw, photo_h / ch)
+    scale = max(photo_w / cw, photo_h / ch)
     nw, nh = int(cw * scale), int(ch * scale)
-    car    = car.resize((nw, nh), Image.LANCZOS)
-    cx     = (nw - photo_w) // 2
-    cy     = (nh - photo_h) // 2
-    car    = car.crop((cx, cy, cx + photo_w, cy + photo_h))
+    car = car.resize((nw, nh), Image.LANCZOS)
+    cx = (nw - photo_w) // 2
+    cy = (nh - photo_h) // 2
+    car = car.crop((cx, cy, cx + photo_w, cy + photo_h))
 
-    # Build canvas (all red initially)
+    # ── Canvas — full red base ────────────────────────────────────────────────
     canvas = Image.new("RGBA", (IMG_W, IMG_H), RED)
-
-    # Paste car photo in correct position
     canvas.paste(car, (border, border), car)
-
-    # Paint bottom bar (red — already covered by canvas)
     draw = ImageDraw.Draw(canvas)
-    bot_y = border + photo_h
-    draw.rectangle([(border, bot_y), (IMG_W - border, IMG_H - border)], fill=RED)
 
-    # ── Logo (right side of bottom bar) ──────────────────────────────────────
+    # Bottom bar (already red from canvas, just re-affirm)
+    bot_y = border + photo_h
+    draw.rectangle([(0, bot_y), (IMG_W, IMG_H)], fill=RED)
+
+    # ── Logo badge — top-right INSIDE the photo area ──────────────────────────
     logo_path = _find_logo()
-    logo_placed = False
-    logo_right_edge = IMG_W - border   # for tagline positioning
     if logo_path:
         try:
             logo = Image.open(logo_path).convert("RGBA")
-            pad = 10
-            max_logo_h = bot_bar - pad * 2
-            max_logo_w = int(IMG_W * 0.22)
-            r = min(max_logo_h / logo.height, max_logo_w / logo.width)
-            lw = int(logo.width * r)
-            lh = int(logo.height * r)
-            logo = logo.resize((lw, lh), Image.LANCZOS)
-            lx = IMG_W - border - lw - 14
-            ly = bot_y + (bot_bar - lh) // 2
-            canvas.paste(logo, (lx, ly), logo)
-            logo_right_edge = lx - 12
-            logo_placed = True
+
+            # Scale logo to a nice badge size
+            badge_w = int(IMG_W * 0.18)          # ~230px wide
+            r       = badge_w / logo.width
+            badge_h = int(logo.height * r)
+
+            logo_resized = logo.resize((badge_w, badge_h), Image.LANCZOS)
+
+            # White rounded rectangle behind logo
+            pad_x, pad_y = 10, 8
+            pill_w = badge_w + pad_x * 2
+            pill_h = badge_h + pad_y * 2
+            margin = 14
+            pill_x = border + photo_w - pill_w - margin   # right-aligned in photo
+            pill_y = border + margin                        # top-aligned in photo
+
+            draw.rounded_rectangle(
+                [pill_x, pill_y, pill_x + pill_w, pill_y + pill_h],
+                radius=10,
+                fill=(255, 255, 255, 245),
+            )
+            canvas.paste(logo_resized, (pill_x + pad_x, pill_y + pad_y), logo_resized)
+
         except Exception as e:
-            print(f"[image] Logo skipped: {e}")
+            print(f"[image] Logo badge skipped: {e}")
 
-    # ── Tagline (left side of bottom bar, Arabic) ─────────────────────────────
-    tagline     = "تابع أخبار السيارات | لحظة بلحظة"
-    font_size   = max(16, bot_bar // 3)
-    font        = _find_font_pil(font_size, bold=False)
-    shaped      = get_display(arabic_reshaper.reshape(tagline))
-    tag_y       = bot_y + bot_bar // 2
-    tag_x_right = logo_right_edge - 10   # tagline starts from logo's left edge going right→left
+    # ── Bottom bar: tagline centred in white text ─────────────────────────────
+    tagline   = "تابع أخبار السيارات  |  لحظة بلحظة"
+    font_size = max(18, bot_bar // 3)
+    font      = _find_font_pil(font_size, bold=False)
+    shaped    = get_display(arabic_reshaper.reshape(tagline))
+    draw.text((IMG_W // 2, bot_y + bot_bar // 2), shaped,
+              font=font, fill=(255, 255, 255, 230), anchor="mm")
 
-    # Draw white tagline text (RTL so anchor right side)
-    draw.text((tag_x_right, tag_y), shaped, font=font,
-              fill=(255, 255, 255, 220), anchor="rm")
-
-    canvas.convert("RGB").save(img_path, "JPEG", quality=93, optimize=True)
-    print(f"[image] Branded frame applied — {IMG_W}×{IMG_H}px (no article text)")
+    canvas.convert("RGB").save(img_path, "JPEG", quality=95, optimize=True)
+    print(f"[image] Branded frame — {IMG_W}×{IMG_H}px, logo badge top-right")
 
 
 # ── prompt building ────────────────────────────────────────────────────────────
@@ -201,7 +204,7 @@ def generate() -> Path:
     if not INPUT_FILE.exists():
         raise FileNotFoundError(f"Input file not found: {INPUT_FILE}")
 
-    article = json.loads(INPUT_FILE.read_text(encoding="utf-8"))
+    article = json.loads(INPUT_FILE.read_text(encoding="utf-8-sig"))
     TMP_DIR.mkdir(exist_ok=True)
 
     primary_hex = os.environ.get("BRAND_COLOR_PRIMARY", "#E60000")

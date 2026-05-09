@@ -66,7 +66,7 @@ def find_latest_pdf() -> Path:
 
 def load_article_data() -> dict:
     if ARABIC_JSON.exists():
-        return json.loads(ARABIC_JSON.read_text(encoding="utf-8"))
+        return json.loads(ARABIC_JSON.read_text(encoding="utf-8-sig"))
     return {}
 
 
