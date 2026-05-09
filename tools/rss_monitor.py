@@ -65,9 +65,6 @@ def process_article(url: str) -> bool:
     if not run_tool("rewrite_arabic.py"):
         return False
 
-    if not run_tool("generate_image.py"):
-        log.warning("Image generation failed — continuing without image")
-
     log.info(f"=== Done: {url} ===")
     return True
 

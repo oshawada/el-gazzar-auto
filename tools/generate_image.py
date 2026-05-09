@@ -69,31 +69,43 @@ def _find_font_pil(size: int, bold: bool = True):
     return ImageFont.load_default()
 
 
+def _remove_red_bg(logo):
+    """Strip red background from logo — keeps only white/light content (transparent bg)."""
+    from PIL import Image
+    logo = logo.convert("RGBA")
+    data = logo.load()
+    w, h = logo.size
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = data[x, y]
+            # A pixel is "red background" when red strongly dominates green+blue
+            if r > 140 and max(g, b) < 110:
+                data[x, y] = (r, g, b, 0)
+    return logo
+
+
 def _composite_overlay(img_path: Path, primary_hex: str, accent_hex: str) -> None:
     """
-    almuraba.net-style frame — NO article text:
-      ┌──── red border (20px top/sides, 0 bottom) ───────────────────────┐
-      │  ┌──────────────────────────────────────────────────────────┐    │
-      │  │  car photo              [logo badge — top right corner]  │    │
-      │  └──────────────────────────────────────────────────────────┘    │
-      │  ┌── red bottom bar (72px) ───────────────────────────────── ┐   │
-      │  │           tagline text centered (white)                    │   │
-      │  └────────────────────────────────────────────────────────────┘   │
+    almuraba.net-style frame:
+      ┌──── red border 20px (top + sides) ───────────────────────────────┐
+      │  car photo (full bleed inside border)                             │
+      ├──── red bottom bar 82px ──────────────────────────────────────────┤
+      │  [تابع أخبار السيارات | لحظة بلحظة]    [المربع نت logo — white] │
       └───────────────────────────────────────────────────────────────────┘
-    Logo: placed as badge inside photo — top-right corner, white rounded bg
+    Logo: red bg removed → white content placed directly on red bar (right side)
     """
     import arabic_reshaper
     from bidi.algorithm import get_display
     from PIL import Image, ImageDraw
 
     pr, pg, pb = _hex_to_rgb(primary_hex)
-    RED  = (pr, pg, pb, 255)
+    RED = (pr, pg, pb, 255)
 
-    border  = 20    # red frame on top + left + right
-    bot_bar = 72    # red bottom bar height
+    border  = 20
+    bot_bar = 108  # tall enough for logo + padding
 
     photo_w = IMG_W - border * 2
-    photo_h = IMG_H - border - bot_bar   # top border only (bottom bar replaces bottom border)
+    photo_h = IMG_H - border - bot_bar
 
     # ── Load + cover-crop car photo ───────────────────────────────────────────
     car = Image.open(img_path).convert("RGBA")
@@ -110,51 +122,43 @@ def _composite_overlay(img_path: Path, primary_hex: str, accent_hex: str) -> Non
     canvas.paste(car, (border, border), car)
     draw = ImageDraw.Draw(canvas)
 
-    # Bottom bar (already red from canvas, just re-affirm)
     bot_y = border + photo_h
     draw.rectangle([(0, bot_y), (IMG_W, IMG_H)], fill=RED)
 
-    # ── Logo badge — top-right INSIDE the photo area ──────────────────────────
+    # ── Logo in bottom bar — right-aligned, red bg removed ───────────────────
     logo_path = _find_logo()
+    logo_left_edge = IMG_W
     if logo_path:
         try:
             logo = Image.open(logo_path).convert("RGBA")
+            logo = _remove_red_bg(logo)
 
-            # Scale logo to a nice badge size
-            badge_w = int(IMG_W * 0.18)          # ~230px wide
-            r       = badge_w / logo.width
-            badge_h = int(logo.height * r)
+            # Target: logo occupies ~82% of bar height, keep 2:1 aspect
+            target_h = int(bot_bar * 0.82)
+            target_w = int(logo.width * (target_h / logo.height))
+            logo_resized = logo.resize((target_w, target_h), Image.LANCZOS)
 
-            logo_resized = logo.resize((badge_w, badge_h), Image.LANCZOS)
+            margin_r = 24
+            logo_x   = IMG_W - target_w - margin_r
+            logo_y   = bot_y + (bot_bar - target_h) // 2
+            logo_left_edge = logo_x
 
-            # White rounded rectangle behind logo
-            pad_x, pad_y = 10, 8
-            pill_w = badge_w + pad_x * 2
-            pill_h = badge_h + pad_y * 2
-            margin = 14
-            pill_x = border + photo_w - pill_w - margin   # right-aligned in photo
-            pill_y = border + margin                        # top-aligned in photo
-
-            draw.rounded_rectangle(
-                [pill_x, pill_y, pill_x + pill_w, pill_y + pill_h],
-                radius=10,
-                fill=(255, 255, 255, 245),
-            )
-            canvas.paste(logo_resized, (pill_x + pad_x, pill_y + pad_y), logo_resized)
-
+            canvas.paste(logo_resized, (logo_x, logo_y), logo_resized)
+            print(f"[image] Logo placed — {target_w}×{target_h}px at ({logo_x},{logo_y})")
         except Exception as e:
-            print(f"[image] Logo badge skipped: {e}")
+            print(f"[image] Logo skipped: {e}")
 
-    # ── Bottom bar: tagline centred in white text ─────────────────────────────
+    # ── Tagline — centred in the space left of the logo ──────────────────────
     tagline   = "تابع أخبار السيارات  |  لحظة بلحظة"
-    font_size = max(18, bot_bar // 3)
+    font_size = max(19, bot_bar // 5)
     font      = _find_font_pil(font_size, bold=False)
     shaped    = get_display(arabic_reshaper.reshape(tagline))
-    draw.text((IMG_W // 2, bot_y + bot_bar // 2), shaped,
-              font=font, fill=(255, 255, 255, 230), anchor="mm")
+    text_cx   = logo_left_edge // 2
+    draw.text((text_cx, bot_y + bot_bar // 2), shaped,
+              font=font, fill=(255, 255, 255, 220), anchor="mm")
 
     canvas.convert("RGB").save(img_path, "JPEG", quality=95, optimize=True)
-    print(f"[image] Branded frame — {IMG_W}×{IMG_H}px, logo badge top-right")
+    print(f"[image] Branded frame — {IMG_W}×{IMG_H}px, logo on red bar")
 
 
 # ── prompt building ────────────────────────────────────────────────────────────
