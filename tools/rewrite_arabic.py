@@ -1,5 +1,5 @@
 # tools/rewrite_arabic.py
-# Purpose: Rewrite article in Saudi Arabic with SEO marketing keywords using Groq API
+# Purpose: Rewrite article in Saudi Arabic with SEO marketing keywords using Claude API
 # Inputs:  .tmp/article_raw.json
 # Outputs: .tmp/article_arabic.json with {title, intro, sections[], conclusion, meta_description, seo_keywords[]}
 
@@ -12,7 +12,7 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
 
-from groq import Groq
+import anthropic
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -198,21 +198,19 @@ def rewrite(max_retries: int = 2) -> dict:
     print(f"[rewrite] Detected topic: {topic}")
     print(f"[rewrite] SEO keywords: {keywords[:5]}...")
 
-    client = Groq(api_key=os.environ["GROQ_API_KEY"])
-    model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    model = os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
     system, user = build_prompt(article, keywords)
 
     for attempt in range(1, max_retries + 1):
-        print(f"[rewrite] Calling Groq API (attempt {attempt})...")
-        response = client.chat.completions.create(
+        print(f"[rewrite] Calling Claude API (attempt {attempt})...")
+        response = client.messages.create(
             model=model,
             max_tokens=4096,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user}
-            ]
+            system=system,
+            messages=[{"role": "user", "content": user}]
         )
-        raw = response.choices[0].message.content.strip()
+        raw = response.content[0].text.strip()
 
         # Strip markdown code fences if present
         raw = re.sub(r"^```(?:json)?\s*", "", raw)

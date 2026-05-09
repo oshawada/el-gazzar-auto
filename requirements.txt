@@ -1,4 +1,4 @@
-groq
+anthropic
 feedparser
 apscheduler
 Pillow
