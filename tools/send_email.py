@@ -63,11 +63,50 @@ def find_latest_pdf() -> Path:
     return pdfs[0]
 
 
-def load_article_title() -> str:
+def load_article_data() -> dict:
     if ARABIC_JSON.exists():
-        data = json.loads(ARABIC_JSON.read_text(encoding="utf-8"))
-        return data.get("title", "مقال جديد")
-    return "مقال جديد"
+        return json.loads(ARABIC_JSON.read_text(encoding="utf-8"))
+    return {}
+
+
+def load_article_title() -> str:
+    return load_article_data().get("title", "مقال جديد")
+
+
+def build_article_body(data: dict) -> str:
+    """Build full article text for the email body."""
+    lines = []
+    title = data.get("title", "")
+    if title:
+        lines.append(title)
+        lines.append("=" * min(len(title), 60))
+        lines.append("")
+
+    intro = data.get("intro", "")
+    if intro:
+        lines.append(intro)
+        lines.append("")
+
+    for section in data.get("sections", []):
+        heading = section.get("heading", "")
+        body = section.get("body", "")
+        if heading:
+            lines.append(f"■ {heading}")
+        if body:
+            lines.append(body)
+        lines.append("")
+
+    conclusion = data.get("conclusion", "")
+    if conclusion:
+        lines.append("── الخلاصة ──")
+        lines.append(conclusion)
+        lines.append("")
+
+    keywords = data.get("seo_keywords", [])
+    if keywords:
+        lines.append(f"الكلمات المفتاحية: {' | '.join(keywords[:6])}")
+
+    return "\n".join(lines)
 
 
 def _attach_pdf(msg: MIMEMultipart, pdf_path: Path, filename: str):
@@ -84,17 +123,12 @@ def send(recipient: str, pdf_path: Path = None):
     if pdf_path is None:
         pdf_path = find_latest_pdf()
 
-    title = load_article_title()
+    data = load_article_data()
+    title = data.get("title", "مقال جديد")
     sender = os.environ.get("GMAIL_USER", "me")
     date_str = datetime.now().strftime("%Y-%m-%d")
 
-    body_text = (
-        f"السلام عليكم،\n\n"
-        f"نقدّم لكم أحدث تقرير في عالم السيارات:\n\n"
-        f"  {title}\n\n"
-        f"تجدون التقرير كاملاً في الملف المرفق.\n\n"
-        f"مع تحيات فريق التحرير"
-    )
+    body_text = build_article_body(data)
 
     msg = MIMEMultipart()
     msg["From"] = sender
@@ -120,17 +154,14 @@ def send_batch(recipient: str, pdf_paths: list[Path]):
     date_str = datetime.now().strftime("%Y-%m-%d")
     count = len(pdf_paths)
 
-    if count == 1:
-        subject = load_article_title()
-    else:
-        subject = f"تقارير السيارات - {count} مقالات جديدة - {date_str}"
+    data = load_article_data()
 
-    body_text = (
-        f"السلام عليكم،\n\n"
-        f"نقدّم لكم {'أحدث تقرير' if count == 1 else f'{count} تقارير'} في عالم السيارات.\n\n"
-        f"تجدون {'التقرير' if count == 1 else 'التقارير'} كاملاً في {'الملف المرفق' if count == 1 else 'الملفات المرفقة'}.\n\n"
-        f"مع تحيات فريق التحرير"
-    )
+    if count == 1:
+        subject = data.get("title", load_article_title())
+        body_text = build_article_body(data)
+    else:
+        subject = f"تقارير السيارات — {count} مقالات جديدة — {date_str}"
+        body_text = build_article_body(data) if data else f"يرجى الاطلاع على {count} تقارير السيارات المرفقة."
 
     msg = MIMEMultipart()
     msg["From"] = sender
