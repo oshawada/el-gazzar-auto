@@ -48,88 +48,110 @@ def _find_logo() -> Path | None:
     return None
 
 
+def _find_font_pil(size: int, bold: bool = True):
+    from PIL import ImageFont
+    candidates = (
+        [ROOT_DIR / "assets" / "fonts" / "tahomabd.ttf",
+         "C:/Windows/Fonts/tahomabd.ttf",
+         "/usr/share/fonts/truetype/msttcorefonts/Tahoma_Bold.ttf",
+         ROOT_DIR / "assets" / "fonts" / "tahoma.ttf",
+         "C:/Windows/Fonts/tahoma.ttf"]
+        if bold else
+        [ROOT_DIR / "assets" / "fonts" / "tahoma.ttf",
+         "C:/Windows/Fonts/tahoma.ttf",
+         "/usr/share/fonts/truetype/msttcorefonts/Tahoma.ttf"]
+    )
+    for p in candidates:
+        try:
+            return ImageFont.truetype(str(p), size)
+        except Exception:
+            continue
+    return ImageFont.load_default()
+
+
 def _composite_overlay(img_path: Path, primary_hex: str, accent_hex: str) -> None:
     """
-    Apply clean branded overlay — NO text on image:
-      - Thin primary-color bar at very top
-      - Car photo fills the frame
-      - Soft gradient at bottom (~35% height) fading to primary color
-      - Logo badge centered inside the gradient zone (with white pill background)
+    Apply almuraba.net-style branded frame — NO article text on image:
+      ┌──── red border (18px all sides) ────┐
+      │  ┌──────────────────────────────┐   │
+      │  │      clean car photo         │   │
+      │  └──────────────────────────────┘   │
+      │  ┌── red bottom bar (~68px) ────┐   │
+      │  │ tagline (left) | logo (right)│   │
+      │  └──────────────────────────────┘   │
+      └──────────────────────────────────────┘
     """
-    from PIL import Image, ImageDraw, ImageFilter
+    import arabic_reshaper
+    from bidi.algorithm import get_display
+    from PIL import Image, ImageDraw
 
     pr, pg, pb = _hex_to_rgb(primary_hex)
+    RED = (pr, pg, pb, 255)
 
-    # Load and resize car photo to fill canvas
+    border   = 18                      # red frame thickness (all sides)
+    bot_bar  = 68                      # bottom bar height (inside frame)
+
+    # Photo area dimensions
+    photo_w = IMG_W - border * 2
+    photo_h = IMG_H - border * 2 - bot_bar
+
+    # Load + cover-crop car photo to photo_w × photo_h
     car = Image.open(img_path).convert("RGBA")
     cw, ch = car.size
-    # Scale to fill IMG_W x IMG_H (cover-fit, center-crop)
-    scale = max(IMG_W / cw, IMG_H / ch)
-    new_w, new_h = int(cw * scale), int(ch * scale)
-    car = car.resize((new_w, new_h), Image.LANCZOS)
-    left = (new_w - IMG_W) // 2
-    top  = (new_h - IMG_H) // 2
-    car  = car.crop((left, top, left + IMG_W, top + IMG_H))
+    scale  = max(photo_w / cw, photo_h / ch)
+    nw, nh = int(cw * scale), int(ch * scale)
+    car    = car.resize((nw, nh), Image.LANCZOS)
+    cx     = (nw - photo_w) // 2
+    cy     = (nh - photo_h) // 2
+    car    = car.crop((cx, cy, cx + photo_w, cy + photo_h))
 
-    canvas = Image.new("RGBA", (IMG_W, IMG_H))
-    canvas.paste(car, (0, 0))
+    # Build canvas (all red initially)
+    canvas = Image.new("RGBA", (IMG_W, IMG_H), RED)
 
+    # Paste car photo in correct position
+    canvas.paste(car, (border, border), car)
+
+    # Paint bottom bar (red — already covered by canvas)
     draw = ImageDraw.Draw(canvas)
+    bot_y = border + photo_h
+    draw.rectangle([(border, bot_y), (IMG_W - border, IMG_H - border)], fill=RED)
 
-    # ── Top brand bar (thin, clean) ───────────────────────────────────────────
-    top_bar_h = max(10, IMG_H // 55)
-    draw.rectangle([(0, 0), (IMG_W, top_bar_h)], fill=(pr, pg, pb, 255))
-
-    # ── Bottom gradient: transparent → primary color ───────────────────────────
-    grad_zone_h = int(IMG_H * 0.40)
-    grad_start  = IMG_H - grad_zone_h
-    overlay = Image.new("RGBA", (IMG_W, IMG_H), (0, 0, 0, 0))
-    ov_draw = ImageDraw.Draw(overlay)
-    for y in range(grad_start, IMG_H):
-        progress = (y - grad_start) / grad_zone_h
-        # Ease-in curve: slow start, strong end
-        alpha = int(230 * (progress ** 1.6))
-        ov_draw.line([(0, y), (IMG_W, y)], fill=(pr, pg, pb, alpha))
-    canvas = Image.alpha_composite(canvas, overlay)
-    draw = ImageDraw.Draw(canvas)
-
-    # ── Logo badge centered in gradient zone ──────────────────────────────────
+    # ── Logo (right side of bottom bar) ──────────────────────────────────────
     logo_path = _find_logo()
+    logo_placed = False
+    logo_right_edge = IMG_W - border   # for tagline positioning
     if logo_path:
         try:
             logo = Image.open(logo_path).convert("RGBA")
-
-            # Target logo size: proportional to canvas
-            logo_target_w = int(IMG_W * 0.22)   # ~264px
-            ratio = logo_target_w / logo.width
-            logo_target_h = int(logo.height * ratio)
-            logo = logo.resize((logo_target_w, logo_target_h), Image.LANCZOS)
-
-            # White rounded-rectangle pill behind logo (for contrast)
-            pad_x, pad_y = 18, 12
-            pill_w = logo_target_w + pad_x * 2
-            pill_h = logo_target_h + pad_y * 2
-            pill_x = (IMG_W - pill_w) // 2
-            pill_y = IMG_H - logo_target_h - pad_y * 2 - int(IMG_H * 0.035)
-
-            radius = min(pill_h // 3, 20)
-            # Draw white pill
-            draw.rounded_rectangle(
-                [pill_x, pill_y, pill_x + pill_w, pill_y + pill_h],
-                radius=radius,
-                fill=(255, 255, 255, 240),
-            )
-
-            # Paste logo centered on pill
-            lx = pill_x + pad_x
-            ly = pill_y + pad_y
+            pad = 10
+            max_logo_h = bot_bar - pad * 2
+            max_logo_w = int(IMG_W * 0.22)
+            r = min(max_logo_h / logo.height, max_logo_w / logo.width)
+            lw = int(logo.width * r)
+            lh = int(logo.height * r)
+            logo = logo.resize((lw, lh), Image.LANCZOS)
+            lx = IMG_W - border - lw - 14
+            ly = bot_y + (bot_bar - lh) // 2
             canvas.paste(logo, (lx, ly), logo)
-
+            logo_right_edge = lx - 12
+            logo_placed = True
         except Exception as e:
             print(f"[image] Logo skipped: {e}")
 
+    # ── Tagline (left side of bottom bar, Arabic) ─────────────────────────────
+    tagline     = "تابع أخبار السيارات | لحظة بلحظة"
+    font_size   = max(16, bot_bar // 3)
+    font        = _find_font_pil(font_size, bold=False)
+    shaped      = get_display(arabic_reshaper.reshape(tagline))
+    tag_y       = bot_y + bot_bar // 2
+    tag_x_right = logo_right_edge - 10   # tagline starts from logo's left edge going right→left
+
+    # Draw white tagline text (RTL so anchor right side)
+    draw.text((tag_x_right, tag_y), shaped, font=font,
+              fill=(255, 255, 255, 220), anchor="rm")
+
     canvas.convert("RGB").save(img_path, "JPEG", quality=93, optimize=True)
-    print(f"[image] Branded image saved — {IMG_W}×{IMG_H}px (no text)")
+    print(f"[image] Branded frame applied — {IMG_W}×{IMG_H}px (no article text)")
 
 
 # ── prompt building ────────────────────────────────────────────────────────────
