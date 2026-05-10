@@ -234,7 +234,7 @@ def rewrite(max_retries: int = 2) -> dict:
             contents=user,
             config=gtypes.GenerateContentConfig(
                 system_instruction=system,
-                max_output_tokens=4096,
+                max_output_tokens=8192,
                 temperature=0.7,
             ),
         )
