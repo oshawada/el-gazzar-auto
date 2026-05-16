@@ -1,0 +1,61 @@
+name: RSS Article Arabizer
+
+on:
+  schedule:
+    # Every hour at minute 0
+    - cron: "0 * * * *"
+  workflow_dispatch:  # Allow manual run from GitHub UI
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Playwright browser
+        run: playwright install chromium --with-deps
+
+      - name: Download Arabic font
+        run: |
+          mkdir -p assets/fonts
+          wget -q -O assets/fonts/tahoma.ttf \
+            "https://github.com/google/fonts/raw/main/ofl/amiri/Amiri-Regular.ttf"
+          wget -q -O assets/fonts/tahomabd.ttf \
+            "https://github.com/google/fonts/raw/main/ofl/amiri/Amiri-Bold.ttf"
+
+      - name: Restore Gmail token
+        run: echo "$GMAIL_TOKEN_B64" | base64 -d > token.json
+        env:
+          GMAIL_TOKEN_B64: ${{ secrets.GMAIL_TOKEN_B64 }}
+
+      - name: Restore seen articles cache
+        uses: actions/cache@v4
+        with:
+          path: .tmp/rss_seen.json
+          key: rss-seen-${{ github.run_id }}
+          restore-keys: rss-seen-
+
+      - name: Run RSS monitor (one poll)
+        run: python tools/rss_monitor.py --once
+        env:
+          GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL:          gemini-2.0-flash
+          GMAIL_USER:            ${{ secrets.GMAIL_USER }}
+          RSS_FEEDS:             ${{ secrets.RSS_FEEDS }}
+          RECIPIENT_EMAIL:       ${{ secrets.RECIPIENT_EMAIL }}
+          MAX_ARTICLES_PER_CYCLE: "3"
+          BRAND_COLOR_PRIMARY:   "#E60000"
+          BRAND_COLOR_ACCENT:    "#FFFFFF"
+          LOGO_PATH:             assets/logo.png
