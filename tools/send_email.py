@@ -47,6 +47,17 @@ FONT_STACK = "'Tajawal', 'Segoe UI', Tahoma, Arial, sans-serif"
 
 def get_gmail_service():
     creds = None
+
+    # In cloud deployments: restore token.json from base64 env var
+    if not TOKEN_FILE.exists():
+        token_b64 = os.environ.get("GMAIL_TOKEN_B64")
+        if token_b64:
+            import base64 as _b64
+            TOKEN_FILE.write_text(
+                _b64.b64decode(token_b64).decode("utf-8"), encoding="utf-8"
+            )
+            print("[email] Loaded Gmail token from GMAIL_TOKEN_B64")
+
     if TOKEN_FILE.exists():
         token_data = json.loads(TOKEN_FILE.read_text(encoding="utf-8-sig"))
         creds = Credentials.from_authorized_user_info(token_data, SCOPES)
@@ -54,11 +65,13 @@ def get_gmail_service():
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
+            TOKEN_FILE.write_text(creds.to_json(), encoding="utf-8")
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(str(CLIENT_SECRET_FILE), SCOPES)
-            print("\n[email] افتح الرابط التالي في المتصفح وامنح الصلاحيات:")
-            creds = flow.run_console()
-        TOKEN_FILE.write_text(creds.to_json(), encoding="utf-8")
+            raise RuntimeError(
+                "Gmail token missing or expired. "
+                "Run tools/auth_gmail.py locally, then set GMAIL_TOKEN_B64="
+                "$(base64 -w0 token.json) as a Fly.io secret."
+            )
 
     return build("gmail", "v1", credentials=creds)
 

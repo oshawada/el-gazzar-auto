@@ -1,0 +1,23 @@
+app = "al-jazar-arabizer"
+primary_region = "iad"
+
+[build]
+
+[env]
+  GMAIL_USER          = "shawada6@gmail.com"
+  GEMINI_MODEL        = "gemini-2.0-flash"
+  RSS_POLL_INTERVAL   = "60"
+  MAX_ARTICLES_PER_CYCLE = "3"
+  BRAND_COLOR_PRIMARY = "#E60000"
+  BRAND_COLOR_ACCENT  = "#FFFFFF"
+
+# Secrets (set via: flyctl secrets set KEY=value) — never commit these:
+#   GEMINI_API_KEY
+#   GMAIL_TOKEN_B64   (base64 of token.json — run: certutil -encode token.json token_b64.txt)
+#   RSS_FEEDS         (comma-separated RSS URLs)
+#   RECIPIENT_EMAIL   (where to send articles)
+
+[[vm]]
+  memory   = "512mb"
+  cpu_kind = "shared"
+  cpus     = 1
